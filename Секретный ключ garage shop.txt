@@ -1,0 +1,25 @@
+==== ACCESS KEY INFORMATION ====
+Key ID:              GK74b962f962c0849b348041ed
+Key name:            shop-backup-key
+Secret key:          d0503c8441de8967afbe28ddaa16545e803b4147c3b413aa65acbfeeb4b7bf35
+Created:             2026-10-24 20:23:47.546 +00:00
+Validity:            valid
+Expiration:          never
+
+Can create buckets:  false
+
+
+==== BUCKET INFORMATION ====
+Bucket:          7042235c3c8e855e93843bc6639fa8f044064dda0306e998a87064b1b6274618
+Created:         2026-10-24 20:23:25.961 +00:00
+
+Size:            0 B (0 B)
+Objects:         0
+
+Website access:  false
+
+Global alias:    shop-backups
+
+==== KEYS FOR THIS BUCKET ====
+Permissions  Access key                                   Local aliases
+RW           GK74b962f962c0849b348041ed  shop-backup-key
