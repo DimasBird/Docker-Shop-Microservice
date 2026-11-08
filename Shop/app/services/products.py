@@ -67,6 +67,9 @@ class ProductService:
             return None
         
         await self.redis.delete(f"product:{product_id}")
+        await publish_product_event(
+            {"event": "product.deleted", "product_id": product.id}
+        )
 
         return product
 

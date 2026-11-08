@@ -1,0 +1,2 @@
+docker compose exec postgres_auth psql -U auth_service -d auth_db
+docker compose exec postgres_shop psql -U shop_service -d shop_db

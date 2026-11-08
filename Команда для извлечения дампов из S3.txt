@@ -1,1 +1,1 @@
-docker compose run --rm -v "${PWD}/restored-backups:/downloads" --entrypoint sh backup -c 'aws --endpoint-url "$S3_ENDPOINT_URL" s3 sync "s3://$S3_BUCKET/" /downloads'
+docker compose run --rm -v "./restored-backups:/downloads" --entrypoint sh backup -c "aws --endpoint-url \"$S3_ENDPOINT_URL\" s3 sync \"s3://$S3_BUCKET/\" /downloads"
