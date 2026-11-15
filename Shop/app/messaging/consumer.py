@@ -15,7 +15,11 @@ async def main() -> None:
     try:
         channel = await connection.channel()
         await channel.set_qos(prefetch_count=10)
-        queue = await channel.declare_queue("product-events", durable=True)
+        queue = await channel.declare_queue(
+            "product-events",
+            durable=True,
+            arguments={"x-queue-type": "quorum"}
+        )
 
         async with queue.iterator() as queue_iter:
             async for message in queue_iter:

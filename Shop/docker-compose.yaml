@@ -8,6 +8,10 @@ services:
       - "127.0.0.1:8080:8000"
     env_file: .env
     depends_on:
+      firewall_redis:
+        condition: service_healthy
+      firewall_postgres_shop:
+        condition: service_healthy
       postgres_shop:
         condition: service_healthy
       redis:
@@ -41,11 +45,40 @@ services:
     volumes:
       - shop_postgres_data:/var/lib/postgresql/data
       - ./init/postgres:/docker-entrypoint-initdb.d:ro
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - max_wal_senders=10
+      - -c
+      - max_replication_slots=10
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
+    networks:
+      - shop_api_backend
+
+  postgres_shop_standby:
+    image: postgres:16-alpine
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ ! -s "$$PGDATA/PG_VERSION" ]; then
+          export PGPASSWORD='ReplicaPass2026!'
+          pg_basebackup -h postgres_shop -p 5432 -U replicator -D "$$PGDATA" -Fp -Xs -P -R
+        fi
+        exec docker-entrypoint.sh postgres
+    volumes:
+      - shop_postgres_standby_data2:/var/lib/postgresql/data
+    depends_on:
+      postgres_shop:
+        condition: service_healthy
+      firewall_postgres_shop:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - shop_api_backend
@@ -58,11 +91,40 @@ services:
       POSTGRES_DB: auth_db
     volumes:
       - auth_postgres_data:/var/lib/postgresql/data
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - max_wal_senders=10
+      - -c
+      - max_replication_slots=10
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
+    networks:
+      - shop_auth_backend
+
+  postgres_auth_standby:
+    image: postgres:16-alpine
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ ! -s "$$PGDATA/PG_VERSION" ]; then
+          export PGPASSWORD='ReplicaPass2026!'
+          pg_basebackup -h postgres_auth -p 5432 -U replicator_auth -D "$$PGDATA" -Fp -Xs -P -R
+        fi
+        exec docker-entrypoint.sh postgres
+    volumes:
+      - auth_postgres_standby_data:/var/lib/postgresql/data
+    depends_on:
+      postgres_auth:
+        condition: service_healthy
+      firewall_postgres_auth:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - shop_auth_backend
@@ -86,9 +148,12 @@ services:
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
+    hostname: 692963e0fdf2
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_NODENAME: rabbit@692963e0fdf2
+      RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE}
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     ports:
@@ -99,6 +164,40 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
+    networks:
+      shop_api_backend:
+        aliases:
+          - "692963e0fdf2"
+      consumer_backend:
+        aliases:
+          - "692963e0fdf2"
+
+  rabbitmq2:
+    image: rabbitmq:3-management-alpine
+    hostname: rabbitmq2
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_NODENAME: rabbit@rabbitmq2
+      RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE}
+    volumes:
+      - rabbitmq2_data:/var/lib/rabbitmq
+    restart: unless-stopped
+    networks:
+      - shop_api_backend
+      - consumer_backend
+
+  rabbitmq3:
+    image: rabbitmq:3-management-alpine
+    hostname: rabbitmq3
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_NODENAME: rabbit@rabbitmq3
+      RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE}
+    volumes:
+      - rabbitmq3_data:/var/lib/rabbitmq
     restart: unless-stopped
     networks:
       - shop_api_backend
@@ -165,6 +264,8 @@ services:
       AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY}
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
     depends_on:
+      firewall_postgres_shop:
+        condition: service_healthy
       postgres_shop:
         condition: service_healthy
       postgres_auth:
@@ -204,6 +305,8 @@ services:
       BACKUP_CRON: ${BACKUP_CRON:-0 3 * * *}
     entrypoint: ["/usr/local/bin/start-cron.sh"]
     depends_on:
+      firewall_postgres_shop:
+        condition: service_healthy
       postgres_shop:
         condition: service_healthy
       postgres_auth:
@@ -216,36 +319,128 @@ services:
       - shop_auth_backend
       - storage_backend
 
+  firewall_postgres_shop:
+    build: ./firewall
+    environment:
+      SERVICE_NAME: postgres_shop
+      ALLOWED_SUBNET: 172.25.0.0/16
+      FIREWALL_PORT: "5432"
+    network_mode: "service:postgres_shop"
+    cap_add:
+      - NET_ADMIN
+    depends_on:
+      postgres_shop:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'iptables -C INPUT -p tcp -s "$${ALLOWED_SUBNET}" --dport "$${FIREWALL_PORT}" -j ACCEPT'
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  firewall_postgres_auth:
+    build: ./firewall
+    environment:
+      SERVICE_NAME: postgres_auth
+      ALLOWED_SUBNET: 172.23.0.0/16
+      FIREWALL_PORT: "5432"
+    network_mode: "service:postgres_auth"
+    cap_add:
+      - NET_ADMIN
+    depends_on:
+      postgres_auth:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'iptables -C INPUT -p tcp -s "$${ALLOWED_SUBNET}" --dport "$${FIREWALL_PORT}" -j ACCEPT'
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  firewall_redis:
+    build: ./firewall
+    environment:
+      SERVICE_NAME: redis
+      ALLOWED_SUBNETS: "172.24.0.0/16,172.25.0.0/16"
+      FIREWALL_PORT: "6379"
+    network_mode: "service:redis"
+    cap_add:
+      - NET_ADMIN
+    depends_on:
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'iptables -C INPUT -p tcp -s 172.24.0.0/16 --dport 6379 -j ACCEPT && iptables -C INPUT -p tcp -s 172.25.0.0/16 --dport 6379 -j ACCEPT'
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
 
 volumes:
   shop_postgres_data:
+  shop_postgres_standby_data:
+  shop_postgres_standby_data2:
   auth_postgres_data:
   redis_data:
   rabbitmq_data:
   garage_data:
   garage_meta:
-
+  auth_postgres_standby_data:
+  rabbitmq2_data:
+  rabbitmq3_data:
 
 networks:
   frontend:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+          gateway: 172.21.0.1
+  
 
   shop_api_backend:
     driver: bridge
     internal: true
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16
+          gateway: 172.25.0.1
 
   shop_auth_backend:
     driver: bridge
     internal: true
+    ipam:
+      config:
+        - subnet: 172.23.0.0/16
+          gateway: 172.23.0.1
 
   shop_cache:
     driver: bridge
     internal: true
+    ipam:
+      config:
+        - subnet: 172.24.0.0/16
+          gateway: 172.24.0.1
 
   consumer_backend:
     driver: bridge
     internal: true
+    ipam:
+      config:
+        - subnet: 172.26.0.0/16
+          gateway: 172.26.0.1
 
   storage_backend:
     driver: bridge
     internal: true
+    ipam:
+      config:
+        - subnet: 172.19.0.0/16
+          gateway: 172.19.0.1
