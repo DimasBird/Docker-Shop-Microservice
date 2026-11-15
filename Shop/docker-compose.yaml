@@ -17,20 +17,19 @@ services:
     restart: unless-stopped
     networks:
       - frontend
-      - shop_backend
+      - shop_cache
+      - shop_api_backend
 
   consumer:
     build: .
     command: python -m app.messaging.consumer
     env_file: .env
     depends_on:
-      postgres_shop:
-        condition: service_healthy
       rabbitmq:
         condition: service_healthy
     restart: unless-stopped
     networks:
-      - shop_backend
+      - consumer_backend
 
   postgres_shop:
     image: postgres:16-alpine
@@ -49,7 +48,7 @@ services:
       retries: 10
     restart: unless-stopped
     networks:
-      - shop_backend
+      - shop_api_backend
 
   postgres_auth:
     image: postgres:16-alpine
@@ -66,7 +65,7 @@ services:
       retries: 10
     restart: unless-stopped
     networks:
-      - auth_backend
+      - shop_auth_backend
 
   redis:
     image: redis:7-alpine
@@ -82,7 +81,8 @@ services:
       retries: 10
     restart: unless-stopped
     networks:
-      - shop_backend
+      - shop_cache
+      - shop_api_backend
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
@@ -101,7 +101,8 @@ services:
       retries: 10
     restart: unless-stopped
     networks:
-      - shop_backend
+      - shop_api_backend
+      - consumer_backend
 
   auth:
     build: ./app/auth-service
@@ -118,7 +119,7 @@ services:
     restart: unless-stopped
     networks:
       - frontend
-      - auth_backend
+      - shop_auth_backend
 
   
   garage:
@@ -172,8 +173,8 @@ services:
         condition: service_started
     restart: "no"
     networks:
-      - shop_backend
-      - auth_backend
+      - shop_api_backend
+      - shop_auth_backend
       - storage_backend
 
   cron:
@@ -211,8 +212,8 @@ services:
         condition: service_healthy
     restart: unless-stopped
     networks:
-      - shop_backend
-      - auth_backend
+      - shop_api_backend
+      - shop_auth_backend
       - storage_backend
 
 
@@ -229,11 +230,19 @@ networks:
   frontend:
     driver: bridge
 
-  shop_backend:
+  shop_api_backend:
     driver: bridge
     internal: true
 
-  auth_backend:
+  shop_auth_backend:
+    driver: bridge
+    internal: true
+
+  shop_cache:
+    driver: bridge
+    internal: true
+
+  consumer_backend:
     driver: bridge
     internal: true
 
